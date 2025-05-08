@@ -56,17 +56,31 @@ const commands = [
         .setName('ayuda')
         .setDescription('Muestra la lista de comandos disponibles'),
     new SlashCommandBuilder()
-        .setName('atacar')
-        .setDescription('Usa un movimiento en la batalla')
+        .setName('tipos')
+        .setDescription('Muestra la tabla de efectividad de tipos')
         .addStringOption(option =>
-            option.setName('movimiento')
-                .setDescription('Número del movimiento (1-4)')
-                .setRequired(true)
+            option.setName('tipo')
+                .setDescription('Tipo específico para ver sus efectividades')
+                .setRequired(false)
                 .addChoices(
-                    { name: 'Movimiento 1', value: '1' },
-                    { name: 'Movimiento 2', value: '2' },
-                    { name: 'Movimiento 3', value: '3' },
-                    { name: 'Movimiento 4', value: '4' }
+                    { name: 'Normal', value: 'Normal' },
+                    { name: 'Fuego', value: 'Fire' },
+                    { name: 'Agua', value: 'Water' },
+                    { name: 'Planta', value: 'Grass' },
+                    { name: 'Eléctrico', value: 'Electric' },
+                    { name: 'Hielo', value: 'Ice' },
+                    { name: 'Lucha', value: 'Fighting' },
+                    { name: 'Veneno', value: 'Poison' },
+                    { name: 'Tierra', value: 'Ground' },
+                    { name: 'Volador', value: 'Flying' },
+                    { name: 'Psíquico', value: 'Psychic' },
+                    { name: 'Bicho', value: 'Bug' },
+                    { name: 'Roca', value: 'Rock' },
+                    { name: 'Fantasma', value: 'Ghost' },
+                    { name: 'Dragón', value: 'Dragon' },
+                    { name: 'Siniestro', value: 'Dark' },
+                    { name: 'Acero', value: 'Steel' },
+                    { name: 'Hada', value: 'Fairy' }
                 ))
 ];
 
@@ -134,8 +148,8 @@ client.on(Events.InteractionCreate, async interaction => {
         case 'retar':
             await handleChallenge(interaction);
             break;
-        case 'atacar':
-            await handleAttack(interaction);
+        case 'tipos':
+            await showTypeChart(interaction);
             break;
         case 'ayuda':
             await showHelp(interaction);
@@ -393,6 +407,7 @@ async function handlePokemonSelection(interaction, pokemonIndex) {
             { name: 'Tipo', value: selectedPokemon.type },
             { name: 'Movimientos disponibles', value: 'Selecciona un movimiento:' }
         )
+        .setThumbnail(selectedPokemon.sprite)
         .setColor('#00ff00');
 
     // Create attack buttons for the selected Pokémon
@@ -446,6 +461,7 @@ async function handleAttackButton(interaction, moveNumber) {
             { name: 'Daño', value: `${damage}%` },
             { name: 'HP restante', value: `${defender.hp}%` }
         )
+        .setThumbnail(currentPokemon.sprite)
         .setColor('#ff0000');
 
     // Check if the battle is over
@@ -497,7 +513,8 @@ async function getPokemonWithMoves(dex, pokemonName) {
     return {
         name: pokemon.name,
         type: pokemon.types[0],
-        moves: moves
+        moves: moves,
+        sprite: `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${pokemon.num}.png`
     };
 }
 
@@ -525,7 +542,69 @@ function createTeamEmbed(username, team, gen) {
         .addFields(
             { name: 'Tu equipo:', value: teamDescription }
         )
+        .setThumbnail(team[0].sprite)
         .setColor('#00ff00');
+}
+
+async function showTypeChart(interaction) {
+    const dex = Dex.mod('gen9');
+    const selectedType = interaction.options.getString('tipo');
+    
+    if (selectedType) {
+        // Show effectiveness for a specific type
+        const type = dex.types.get(selectedType);
+        const effectiveness = type.damageTaken;
+        
+        const superEffective = [];
+        const notVeryEffective = [];
+        const noEffect = [];
+        
+        for (const [targetType, multiplier] of Object.entries(effectiveness)) {
+            if (multiplier === 2) superEffective.push(targetType);
+            else if (multiplier === 0.5) notVeryEffective.push(targetType);
+            else if (multiplier === 0) noEffect.push(targetType);
+        }
+
+        const embed = new EmbedBuilder()
+            .setTitle(`Efectividad de ${type.name}`)
+            .setDescription(`Aquí está la efectividad de los ataques de tipo ${type.name}:`)
+            .addFields(
+                { name: 'Super Efectivo (x2)', value: superEffective.length > 0 ? superEffective.join(', ') : 'Ninguno' },
+                { name: 'No Muy Efectivo (x0.5)', value: notVeryEffective.length > 0 ? notVeryEffective.join(', ') : 'Ninguno' },
+                { name: 'Sin Efecto (x0)', value: noEffect.length > 0 ? noEffect.join(', ') : 'Ninguno' }
+            )
+            .setColor('#00ff00');
+
+        await interaction.reply({ embeds: [embed] });
+    } else {
+        // Show all type relationships
+        const types = dex.types.all();
+        const typeChart = types.map(type => {
+            const effectiveness = type.damageTaken;
+            const superEffective = Object.entries(effectiveness)
+                .filter(([_, multiplier]) => multiplier === 2)
+                .map(([type]) => type);
+            const notVeryEffective = Object.entries(effectiveness)
+                .filter(([_, multiplier]) => multiplier === 0.5)
+                .map(([type]) => type);
+            const noEffect = Object.entries(effectiveness)
+                .filter(([_, multiplier]) => multiplier === 0)
+                .map(([type]) => type);
+
+            return {
+                name: type.name,
+                value: `Super efectivo contra: ${superEffective.join(', ') || 'Ninguno'}\nNo muy efectivo contra: ${notVeryEffective.join(', ') || 'Ninguno'}\nSin efecto contra: ${noEffect.join(', ') || 'Ninguno'}`
+            };
+        });
+
+        const embed = new EmbedBuilder()
+            .setTitle('Tabla de Tipos Pokémon')
+            .setDescription('Usa `/tipos [tipo]` para ver la efectividad de un tipo específico')
+            .addFields(typeChart)
+            .setColor('#00ff00');
+
+        await interaction.reply({ embeds: [embed] });
+    }
 }
 
 async function showHelp(interaction) {
@@ -534,7 +613,7 @@ async function showHelp(interaction) {
         .setDescription('Aquí están los comandos disponibles:')
         .addFields(
             { name: '/retar @usuario [generación] [pokemones]', value: 'Reta a otro usuario a una batalla. Puedes especificar la generación (1-9) y la cantidad de Pokémon por equipo (1-6).' },
-            { name: '/atacar [movimiento]', value: 'Usa un movimiento en tu turno. Especifica el número del movimiento (1-4).' },
+            { name: '/tipos [tipo]', value: 'Muestra la tabla de efectividad de tipos. Puedes especificar un tipo para ver sus efectividades específicas.' },
             { name: '/ayuda', value: 'Muestra este mensaje de ayuda' }
         )
         .setColor('#0099ff');
