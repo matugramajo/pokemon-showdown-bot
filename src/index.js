@@ -149,7 +149,7 @@ async function handleChallenge(interaction) {
     const challenger = interaction.user;
     const opponent = interaction.options.getUser('oponente');
     const gen = interaction.options.getString('generacion') || '9';
-    const teamSize = interaction.options.getInteger('pokemones') || 6;
+    const teamSize = interaction.options.getInteger('pokemones') || 3;
     
     if (opponent.bot) {
         return interaction.editReply('No puedes retar a un bot a una batalla.');
@@ -208,7 +208,15 @@ async function handleChallenge(interaction) {
 }
 
 async function handleButtonInteraction(interaction) {
-    const [action, challengerId, gen, teamSize] = interaction.customId.split('_');
+    const [action, ...params] = interaction.customId.split('_');
+    
+    if (action === 'attack') {
+        await handleAttackButton(interaction, params[0]);
+        return;
+    }
+
+    // Handle other button interactions (accept/decline challenge)
+    const [challengerId, gen, teamSize] = params;
     const challenger = await client.users.fetch(challengerId);
     
     if (!activeChallengers.has(challengerId)) {
@@ -267,7 +275,8 @@ async function startBattle(interaction, player1, player2, gen, teamSize) {
         currentTurn: player1.id,
         gen,
         lastUpdate: Date.now(),
-        channel: interaction.channel
+        channel: interaction.channel,
+        messageId: null // Will store the ID of the battle message
     });
 
     // Create battle embeds for each player
@@ -289,7 +298,7 @@ async function startBattle(interaction, player1, player2, gen, teamSize) {
         await interaction.followUp('No se pudieron enviar los mensajes privados. Asegúrate de tener los DMs activados.');
     }
 
-    // Create public battle announcement
+    // Create battle message with attack buttons
     const battleEmbed = new EmbedBuilder()
         .setTitle('¡Batalla Pokémon!')
         .setDescription(`${player1.username} vs ${player2.username}`)
@@ -300,12 +309,36 @@ async function startBattle(interaction, player1, player2, gen, teamSize) {
         )
         .setColor('#00ff00');
 
-    await interaction.followUp({ embeds: [battleEmbed] });
+    // Create attack buttons for the first Pokémon
+    const attackButtons = createAttackButtons(team1WithMoves[0].moves);
+    
+    // Send the battle message with buttons
+    const battleMessage = await interaction.followUp({
+        embeds: [battleEmbed],
+        components: [attackButtons]
+    });
+
+    // Store the message ID for future updates
+    activeBattles.get(battleId).messageId = battleMessage.id;
 }
 
-async function handleAttack(interaction) {
+function createAttackButtons(moves) {
+    const row = new ActionRowBuilder();
+    
+    moves.forEach((move, index) => {
+        const button = new ButtonBuilder()
+            .setCustomId(`attack_${index + 1}`)
+            .setLabel(`${move.name} (${move.type})`)
+            .setStyle(ButtonStyle.Primary);
+        row.addComponents(button);
+    });
+
+    return row;
+}
+
+async function handleAttackButton(interaction, moveNumber) {
     const userId = interaction.user.id;
-    const moveNumber = parseInt(interaction.options.getString('movimiento'));
+    const moveIndex = parseInt(moveNumber) - 1;
     
     // Find the battle where this user is participating
     let battleId = null;
@@ -331,9 +364,9 @@ async function handleAttack(interaction) {
 
     // Get current Pokémon and its moves
     const currentPokemon = attacker.team[attacker.currentPokemon];
-    const move = currentPokemon.moves[moveNumber - 1];
+    const move = currentPokemon.moves[moveIndex];
 
-    // Calculate damage (simplified version)
+    // Calculate damage
     const damage = calculateDamage(move, currentPokemon, defender.team[defender.currentPokemon]);
     defender.hp -= damage;
 
@@ -354,13 +387,25 @@ async function handleAttack(interaction) {
             .setColor('#00ff00');
         
         activeBattles.delete(battleId);
+        await interaction.update({
+            embeds: [battleEmbed],
+            components: []
+        });
     } else {
         // Switch turns
         battle.currentTurn = defender.id;
         battleEmbed.addFields({ name: 'Siguiente turno', value: `<@${defender.id}>` });
-    }
 
-    await interaction.reply({ embeds: [battleEmbed] });
+        // Update attack buttons for the next player's Pokémon
+        const nextPlayer = defender;
+        const nextPokemon = nextPlayer.team[nextPlayer.currentPokemon];
+        const newAttackButtons = createAttackButtons(nextPokemon.moves);
+
+        await interaction.update({
+            embeds: [battleEmbed],
+            components: [newAttackButtons]
+        });
+    }
 }
 
 function calculateDamage(move, attacker, defender) {
